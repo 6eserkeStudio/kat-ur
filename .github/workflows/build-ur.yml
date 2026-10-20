@@ -1,0 +1,120 @@
+name: Build and Publish UR Package
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packages/**'
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get changed package files
+        id: changed
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- packages/ | head -20)
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS CLI for R2
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.R2_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          aws configure set region auto
+          aws configure set endpoint_url ${{ secrets.R2_ENDPOINT }} --endpoint-url ${{ secrets.R2_ENDPOINT }}
+
+      - name: Download current UR index
+        run: |
+          aws s3 cp s3://${{ secrets.R2_BUCKET }}/index-ur.json index-ur.json --endpoint-url ${{ secrets.R2_ENDPOINT }} || echo '[]' > index-ur.json
+
+      - name: Build and publish each changed package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${{ steps.changed.outputs.files }}" | while read -r recipe; do
+            if [ -z "$recipe" ] || [ ! -f "$recipe" ]; then
+              continue
+            fi
+
+            echo "Building package from recipe: $recipe"
+
+            PKG_NAME=$(basename "$recipe" .recipe)
+            PKG_VERSION=$(grep -i '^version=' "$recipe" | cut -d'=' -f2 | tr -d '"'"'"'')
+            PKG_DESC=$(grep -i '^description=' "$recipe" | cut -d'=' -f2- | tr -d '"'"'"'')
+            PKG_ARCH=$(grep -i '^arch=' "$recipe" | cut -d'=' -f2 | tr -d '"'"'"'')
+            PKG_DEPS=$(grep -i '^dependencies=' "$recipe" | cut -d'=' -f2- | tr -d '"'"'"'[]')
+
+            if [ -z "$PKG_VERSION" ]; then
+              PKG_VERSION="1.0.0"
+            fi
+            if [ -z "$PKG_ARCH" ]; then
+              PKG_ARCH="x86_64"
+            fi
+
+            TAG="${PKG_NAME}-${PKG_VERSION}"
+
+            echo "Package: $PKG_NAME v$PKG_VERSION"
+
+            if [ -f "$(dirname $recipe)/build.sh" ]; then
+              cd "$(dirname $recipe)"
+              chmod +x build.sh
+              ./build.sh
+              cd -
+            fi
+
+            BUILT=$(find . -name "*.kat" | head -1)
+
+            if [ -z "$BUILT" ]; then
+              echo "No .kat file found after build. Skipping."
+              continue
+            fi
+
+            SHA256=$(sha256sum "$BUILT" | cut -d' ' -f1)
+            SIZE=$(stat -c%s "$BUILT")
+
+            gh release create "$TAG" "$BUILT" \
+              --repo ${{ github.repository }} \
+              --title "$TAG" \
+              --notes "UR package: $PKG_NAME v$PKG_VERSION" \
+              || gh release upload "$TAG" "$BUILT" --repo ${{ github.repository }} --clobber
+
+            DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/$(basename $BUILT)"
+
+            python3 << EOF
+          import json
+
+          with open('index-ur.json', 'r') as f:
+              index = json.load(f)
+
+          index = [p for p in index if p.get('name') != '$PKG_NAME']
+
+          entry = {
+              "name": "$PKG_NAME",
+              "version": "$PKG_VERSION",
+              "description": "$PKG_DESC",
+              "dependencies": [d.strip() for d in "$PKG_DEPS".split(',') if d.strip()],
+              "size": "$SIZE",
+              "download_url": "$DOWNLOAD_URL",
+              "sha256": "$SHA256",
+              "arch": "$PKG_ARCH",
+              "repo": "user"
+          }
+          index.append(entry)
+
+          with open('index-ur.json', 'w') as f:
+              json.dump(index, f, indent=2)
+          EOF
+
+            echo "Published $PKG_NAME v$PKG_VERSION to UR index"
+          done
+
+      - name: Upload updated index to R2
+        run: |
+          aws s3 cp index-ur.json s3://${{ secrets.R2_BUCKET }}/index-ur.json --endpoint-url ${{ secrets.R2_ENDPOINT }}
+          echo "Index updated on R2"
