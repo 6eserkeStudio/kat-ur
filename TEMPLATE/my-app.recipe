@@ -3,3 +3,4 @@ version=1.0.0
 description=My awesome application
 arch=x86_64
 dependencies=libcurl,openssl
+source=https://github.com/you/my-app.git
