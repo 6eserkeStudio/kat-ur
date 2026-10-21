@@ -1,0 +1,5 @@
+name=my-app
+version=1.0.0
+description=My awesome application
+arch=x86_64
+dependencies=libcurl,openssl
