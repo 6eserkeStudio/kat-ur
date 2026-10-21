@@ -1,0 +1,28 @@
+name: Auto-merge UR submissions
+on:
+  pull_request:
+    types: [opened, synchronize]
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR has required files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FILES=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --jq '.[].filename')
+          HAS_RECIPE=false
+          HAS_BUILD=false
+          for file in $FILES; do
+            if [[ "$file" == packages/*/*.recipe ]]; then HAS_RECIPE=true; fi
+            if [[ "$file" == packages/*/build.sh ]]; then HAS_BUILD=true; fi
+          done
+          if [ "$HAS_RECIPE" = false ]; then echo "No .recipe file found"; exit 1; fi
+          if [ "$HAS_BUILD" = false ]; then echo "No build.sh file found"; exit 1; fi
+          echo "PR validated"
+      - name: Auto-merge
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --merge --delete-branch
