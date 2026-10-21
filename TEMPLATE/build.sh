@@ -8,29 +8,27 @@ PKG_DESC="My awesome application"
 PKG_DEPS="libcurl,openssl"
 PKG_SOURCE="https://github.com/you/my-app.git"
 
-# === GET SOURCE CODE ===
-# Option A: Source is in a src/ folder next to this file
-# Option B: Source is cloned from a git URL (PKG_SOURCE above)
-#
-# Pick ONE option and delete the other:
+# === GET YOUR APP — PICK ONE OPTION, DELETE THE OTHERS ===
 
-# Option A: Use local src/ folder
+# Option A: Source code in src/ folder
 # cp -r src /tmp/build-src
+# cd /tmp/build-src && make
 
 # Option B: Clone from git
-git clone "$PKG_SOURCE" /tmp/build-src
+# git clone "$PKG_SOURCE" /tmp/build-src
+# cd /tmp/build-src && make
 
-# === COMPILE YOUR APP ===
-# Put your build commands here. Examples:
-#   cd /tmp/build-src && make
-#   cd /tmp/build-src && gcc main.c -o my-app
-#   cd /tmp/build-src && cmake . && make
-cd /tmp/build-src
-make
+# Option C: Pre-compiled binary in bin/ folder
+# No compiling needed. Your binary goes in packages/my-app/bin/my-app
 
-# === FIND YOUR COMPILED BINARY ===
-# Point this to wherever your compiled binary ended up
-BINARY=/tmp/build-src/my-app
+# === IF YOU USED OPTION A OR B, COMPILE HERE ===
+# cd /tmp/build-src
+# make
+
+# === POINT TO YOUR BINARY ===
+# Option A/B: BINARY=/tmp/build-src/my-app
+# Option C:   BINARY=bin/my-app
+BINARY=bin/my-app
 
 # === PACKAGE INTO .KAT (DO NOT CHANGE) ===
 mkdir -p files/usr/bin
