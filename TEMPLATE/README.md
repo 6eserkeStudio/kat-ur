@@ -1,14 +1,18 @@
 # How to submit a package to Katana UR
 
-1. Copy this TEMPLATE folder to `packages/<your-app-name>/`
-2. Edit `<your-app-name>.recipe` — fill in name, version, description, arch, dependencies
-3. Edit `build.sh` — add your build commands, copy your compiled binary to `files/usr/bin/`
-4. Open a Pull Request — it auto-merges and builds automatically
-5. Users install with: `kur install <your-app-name>`
+## Step 1: Create your package folder
+Copy this TEMPLATE folder to `packages/<your-app-name>/`
 
-## Rules
-- Package name must be lowercase, no spaces, hyphens allowed
-- Version must be semantic (e.g. 1.0.0)
-- Your build.sh MUST produce a .kat file
-- The .kat file is a tar.gz containing files/ and metadata.json
-- No malicious code
+## Step 2: Add your source code
+Pick ONE option:
+
+**Option A: Include source in the folder**
+Put your source code in `packages/<your-app-name>/src/`
+Delete the `source=` line in your .recipe file
+Uncomment "Option A" in build.sh and delete "Option B"
+
+**Option B: Clone from git**
+Keep the `source=` line in your .recipe file with your git URL
+build.sh will clone it automatically
+
+## Step 3: Edit your .recipe file
