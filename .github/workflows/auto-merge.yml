@@ -1,28 +1,21 @@
-name: Auto-merge UR submissions
+name: Build and Publish UR Package
 on:
-  pull_request:
-    types: [opened, synchronize]
+  push:
+    branches: [main]
+    paths: ['packages/**']
 jobs:
-  auto-merge:
+  build-and-publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate PR has required files
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
+      - name: Get changed recipes
+        id: changed
         run: |
-          FILES=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --jq '.[].filename')
-          HAS_RECIPE=false
-          HAS_BUILD=false
-          for file in $FILES; do
-            if [[ "$file" == packages/*/*.recipe ]]; then HAS_RECIPE=true; fi
-            if [[ "$file" == packages/*/build.sh ]]; then HAS_BUILD=true; fi
-          done
-          if [ "$HAS_RECIPE" = false ]; then echo "No .recipe file found"; exit 1; fi
-          if [ "$HAS_BUILD" = false ]; then echo "No build.sh file found"; exit 1; fi
-          echo "PR validated"
-      - name: Auto-merge
-        if: success()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- packages/ | grep '\.recipe$' | head -20)
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      - name: Configure AWS CLI for R2
         run: |
-          gh pr merge ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --merge --delete-branch
+          aws configure set aws_access_key_id ${{ secrets.R2_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ sec
