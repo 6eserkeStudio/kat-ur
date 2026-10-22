@@ -18,4 +18,58 @@ jobs:
       - name: Configure AWS CLI for R2
         run: |
           aws configure set aws_access_key_id ${{ secrets.R2_ACCESS_KEY_ID }}
-          aws configure set aws_secret_access_key ${{ sec
+          aws configure set aws_secret_access_key ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          aws configure set region auto
+      - name: Download current UR index
+        run: |
+          aws s3 cp s3://${{ secrets.R2_BUCKET }}/index-ur.json index-ur.json \
+            --endpoint-url ${{ secrets.R2_ENDPOINT }} || echo '[]' > index-ur.json
+      - name: Build and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${{ steps.changed.outputs.files }}" | while read -r recipe; do
+            if [ -z "$recipe" ] || [ ! -f "$recipe" ]; then continue; fi
+            chmod +x build.sh
+            ./build.sh "$recipe"
+            PKG_DIR=$(dirname "$recipe")
+            KAT_FILE=$(find "$PKG_DIR" -name "*.kat" | head -1)
+            if [ -z "$KAT_FILE" ]; then echo "No .kat produced"; continue; fi
+            PKG_NAME=$(grep '^name=' "$recipe" | cut -d'=' -f2)
+            PKG_VERSION=$(grep '^version=' "$recipe" | cut -d'=' -f2)
+            PKG_DESC=$(grep '^description=' "$recipe" | cut -d'=' -f2-)
+            PKG_ARCH=$(grep '^arch=' "$recipe" | cut -d'=' -f2)
+            PKG_DEPS=$(grep '^dependencies=' "$recipe" | cut -d'=' -f2-)
+            if [ -z "$PKG_ARCH" ]; then PKG_ARCH="x86_64"; fi
+            SHA256=$(sha256sum "$KAT_FILE" | cut -d' ' -f1)
+            SIZE=$(stat -c%s "$KAT_FILE")
+            TAG="${PKG_NAME}-${PKG_VERSION}"
+            gh release create "$TAG" "$KAT_FILE" --repo ${{ github.repository }} \
+              --title "$TAG" --notes "$PKG_NAME v$PKG_VERSION" \
+              || gh release upload "$TAG" "$KAT_FILE" --repo ${{ github.repository }} --clobber
+            DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/$(basename $KAT_FILE)"
+
+            # Build dependencies JSON array with jq
+            DEPS_JSON=$(echo "$PKG_DEPS" | tr ',' '\n' | jq -R . | jq -s .)
+
+            # Update index with jq
+            NEW_ENTRY=$(jq -n \
+              --arg name "$PKG_NAME" \
+              --arg version "$PKG_VERSION" \
+              --arg description "$PKG_DESC" \
+              --argjson dependencies "$DEPS_JSON" \
+              --arg size "$SIZE" \
+              --arg download_url "$DOWNLOAD_URL" \
+              --arg sha256 "$SHA256" \
+              --arg arch "$PKG_ARCH" \
+              '{name:$name,version:$version,description:$description,dependencies:$dependencies,size:$size,download_url:$download_url,sha256:$sha256,arch:$arch,repo:"user"}')
+
+            jq --argjson new "$NEW_ENTRY" \
+              'map(select(.name != $new.name)) + [$new]' index-ur.json > tmp.json && mv tmp.json index-ur.json
+
+            echo "Published $PKG_NAME v$PKG_VERSION"
+          done
+      - name: Upload index to R2
+        run: |
+          aws s3 cp index-ur.json s3://${{ secrets.R2_BUCKET }}/index-ur.json \
+            --endpoint-url ${{ secrets.R2_ENDPOINT }}
